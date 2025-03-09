@@ -15,6 +15,7 @@
 
 set -e
 set -o pipefail
+set -x  # Enable debug mode
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -25,7 +26,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Define log file with timestamp
-LOG_FILE="/var/log/pipe-pop-setup_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="$GITHUB_WORKSPACE/var/log/pipe-pop-setup_$(date +%Y%m%d_%H%M%S).log"
 sudo mkdir -p /var/log/
 sudo touch "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -45,19 +46,20 @@ fi
 
 # Cleanup function on exit
 cleanup() {
-    rm -rf "$TEMP_DIR"
-    log "Cleaned up temporary files."
+    echo "Cleaning up temporary files..."
+    [[ -d "$TEMP_DIR" ]] && rm -rf "$TEMP_DIR"
 }
+
 trap cleanup EXIT
+
 
 # Display welcome message
 clear
 log "Pipe PoP Easy Setup Tool v1.2.0"
 log "Setting up Pipe PoP node for the Pipe Network decentralized CDN."
-
 read -p "Press Enter to continue or Ctrl+C to cancel..."
 
-# Function to install required packages efficiently
+# Install dependencies
 install_dependencies() {
     log "Installing required packages..."
     local packages=(curl net-tools jq git)
@@ -87,20 +89,21 @@ setup_pipe_pop() {
     fi
 }
 
-# Function to setup Solana wallet
+# Setup Solana Wallet
 setup_solana_wallet() {
     log "Installing Solana CLI..."
+    export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
     sh -c "$(curl -sSfL https://release.solana.com/stable/install)" || { error "Solana CLI installation failed."; exit 1; }
-    source ~/.bashrc
+    mkdir -p ~/.config/solana
     read -p "Create a new Solana wallet? (y/n): " create_wallet
     if [[ "$create_wallet" =~ ^[yY]$ ]]; then
         solana-keygen new --no-passphrase
         SOLANA_WALLET=$(solana address)
-        log "Wallet created: $SOLANA_WALLET"
     else
         read -p "Enter existing Solana wallet address: " SOLANA_WALLET
-        log "Using provided wallet address: $SOLANA_WALLET"
     fi
+    echo "$SOLANA_WALLET" | sudo tee /opt/pipe-pop/wallet.txt > /dev/null
+    log "Wallet setup complete."
 }
 
 # Function to setup systemd service
@@ -144,19 +147,19 @@ EOF
     log "'pop' command installed successfully."
 }
 
-# Function to setup update mechanism
+# Install update command
 install_update_command() {
     log "Installing update command 'pop-update'..."
     cat > /usr/local/bin/pop-update << 'EOF'
 #!/bin/bash
 cd /usr/local/bin && sudo curl -O https://raw.githubusercontent.com/preterag/pipecdn/main/setup.sh
-chmod +x /usr/local/bin/pipe-pop-setup.sh
+chmod +x /usr/local/bin/setup.sh
 EOF
     chmod +x /usr/local/bin/pop-update
     log "'pop-update' command installed successfully."
 }
 
-# Main execution flow
+# Execute installation steps
 install_dependencies
 setup_pipe_pop
 setup_solana_wallet
@@ -164,4 +167,4 @@ setup_systemd_service
 install_global_command
 install_update_command
 
-log "Pipe PoP node setup completed successfully. Use 'pop' to manage your node."
+log "✅ Pipe PoP node setup completed successfully. Use 'pop' to manage your node."
